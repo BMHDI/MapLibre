@@ -1,34 +1,43 @@
 import React, { useEffect, useRef } from 'react';
-import maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
+import L from 'leaflet'; // Import Leaflet
+import 'leaflet/dist/leaflet.css'; // Leaflet CSS
+
+// Fix for Leaflet marker icon not displaying correctly
+import markerIcon from 'leaflet/dist/images/marker-icon.png';
+import markerIconShadow from 'leaflet/dist/images/marker-shadow.png';
 
 const MapComponent = () => {
-  const mapContainer = useRef(null); // Map container reference
+  const mapContainer = useRef(null); // Reference for map container
   const map = useRef(null); // Store map instance
 
   useEffect(() => {
-    // Initialize the map once
-    map.current = new maplibregl.Map({
-      container: mapContainer.current,
-      style: 'https://tiles.openfreemap.org/styles/liberty', // OpenFreeMap tiles
-      center: [-114.0719, 51.0447], // Calgary coordinates
-      zoom: 12,
+    // Initialize map only once
+    map.current = L.map(mapContainer.current).setView([51.0447, -114.0719], 12); // Calgary coordinates
+
+    // Add OpenStreetMap tiles
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(map.current);
+
+    // Adjust Leaflet marker icon paths
+    const DefaultIcon = L.icon({
+      iconUrl: markerIcon,
+      shadowUrl: markerIconShadow,
     });
+    L.Marker.prototype.options.icon = DefaultIcon;
 
-    map.current.addControl(new maplibregl.NavigationControl(), 'top-right'); // Zoom controls
-
-    // Get the user's location
+    // Get user location and fly to it
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          const userCoords = [position.coords.longitude, position.coords.latitude];
-          new maplibregl.Marker({ color: 'red' }).setLngLat(userCoords).addTo(map.current);
-          map.current.flyTo({ center: userCoords, zoom: 15 });
+          const userCoords = [position.coords.latitude, position.coords.longitude];
+          L.marker(userCoords).addTo(map.current); // Add marker for user location
+          map.current.flyTo(userCoords, 15); // Zoom to user location
         },
         (error) => alert('Unable to retrieve your location: ' + error.message)
       );
     } else {
-      alert('Geolocation not supported.');
+      alert('Geolocation not supported by your browser.');
     }
 
     const fetchAndDisplayData = async () => {
@@ -37,88 +46,46 @@ const MapComponent = () => {
           fetch('https://data.calgary.ca/resource/ggxk-g2u3.json').then((res) => res.json()),
           fetch('https://data.calgary.ca/resource/rhkg-vwwp.json').then((res) => res.json()),
         ]);
-    
-        // Process and add parking lot polygons
+
+        // Add parking lot polygons
         parkingLotsData.forEach((lot) => {
-          if (lot.multipolygon && Array.isArray(lot.multipolygon.coordinates) && lot.multipolygon.coordinates.length) {
-            const coordinates = lot.multipolygon.coordinates[0][0].map(coord => [coord[0], coord[1]]); // Convert to [lng, lat]
-    
-            const sourceId = lot.globalid; // Generate a unique ID
-    
-            map.current.addSource(sourceId, {
-              type: 'geojson',
-              data: {
-                type: 'Feature',
-                geometry: { type: 'Polygon', coordinates: [coordinates] },
-                properties: {
-                  lotName: lot.lot_name,
-                  address: lot.address_desc,
-                  homePage: lot.home_page?.url || '',
-                },
-              },
-            });
-    
-            map.current.addLayer({
-              id: sourceId,
-              type: 'fill',
-              source: sourceId,
-              paint: { 'fill-color': '#088', 'fill-opacity': 0.5 },
-            });
-    
-            map.current.addLayer({
-              id: `${sourceId}-outline`,
-              type: 'line',
-              source: sourceId,
-              paint: { 'line-color': '#fff', 'line-width': 2 },
-            });
+          if (lot.multipolygon && Array.isArray(lot.multipolygon.coordinates)) {
+            const coordinates = lot.multipolygon.coordinates[0][0].map(
+              (coord) => [coord[1], coord[0]] // Switch [lng, lat] to [lat, lng]
+            );
+
+            L.polygon(coordinates, { color: '#088', fillOpacity: 0.5 }).addTo(map.current)
+              .bindPopup(`<strong>${lot.lot_name}</strong><br>${lot.address_desc}`);
           }
         });
-    
-        // Process and add parking zone lines
+
+        // Add parking zone lines
         parkingZonesData.forEach((zone) => {
           if (zone.line && Array.isArray(zone.line.coordinates)) {
-            const coordinates = zone.line.coordinates.map(coord => [coord[0], coord[1]]); // Convert to [lng, lat]
-    
-            const sourceId = `zone-${zone.parking_zone}-${Math.random().toString(36).substr(2, 9)}`; // Generate a unique ID
-    
-            map.current.addSource(sourceId, {
-              type: 'geojson',
-              data: {
-                type: 'Feature',
-                geometry: { 
-                  type: 'MultiLineString', 
-                  coordinates: coordinates // Use coordinates directly
-                },
-                properties: {
-                  address: zone.address_desc,
-                  type: zone.zone_type,
-                  enforceableTime: zone.enforceable_time,
-                },
-              },
-            });
-    
-            map.current.addLayer({
-              id: sourceId,
-              type: 'line',
-              source: sourceId,
-              paint: { 'line-color': '#FF8527', 'line-width': 6 },
-            });
+            const coordinates = zone.line.coordinates.map(
+              (coord) => [coord[1], coord[0]] // Switch [lng, lat] to [lat, lng]
+            );
+
+            L.polyline(coordinates, { color: '#FF8527', weight: 6 }).addTo(map.current)
+              .bindPopup(`<strong>Zone Type:</strong> ${zone.zone_type}<br>${zone.address_desc}`);
           }
         });
       } catch (error) {
         console.error('Error fetching data:', error);
       }
     };
-    
 
     fetchAndDisplayData();
 
-    // Clean up the map instance on unmount
-    return () => map.current && map.current.remove();
+    // Cleanup map instance on unmount
+    return () => {
+      if (map.current) {
+        map.current.remove();
+      }
+    };
   }, []);
 
   return <div ref={mapContainer} style={{ width: '100%', height: '500px' }} />;
 };
-
 
 export default MapComponent;
