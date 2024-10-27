@@ -1,12 +1,17 @@
 import React from 'react';
 import MapComponent from './components/MapComponent';
+import NavigationBar from './components/NavigationBar'; 
 
 const App = () => {
   return (
-    <div className="App">
-      <h1>Parking Pirates</h1>
-      <MapComponent />
-    </div>
+    <>
+    <NavigationBar />
+
+      <div className="App">
+       
+        <MapComponent />
+      </div>
+    </>
   );
 };
 
